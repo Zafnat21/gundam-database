@@ -16,6 +16,13 @@
     <div
         x-data="{
             tab: 'mobile-suits',
+            search: '',
+            selectedTag: 'All',
+            sortOption: 'name-asc',
+            filterOpen: false,
+            mobileSuitPage: 1,
+            pilotPage: 1,
+            itemsPerPage: 6,
             modalOpen: false,
             modalType: '',
             selectedItem: null,
@@ -24,6 +31,143 @@
             selectedImageAlt: '',
             allMobileSuits: @js($mobileSuits),
             allPilots: @js($pilots),
+
+            extractTags(items) {
+                return [...new Set(
+                    items.flatMap(item =>
+                        (item.tags || '')
+                            .split(',')
+                            .map(tag => tag.trim())
+                            .filter(Boolean)
+                    )
+                )].sort((a, b) => a.localeCompare(b));
+            },
+
+            availableTags() {
+                const source = this.tab === 'mobile-suits' ? this.allMobileSuits : this.allPilots;
+                return this.extractTags(source);
+            },
+
+            matchesSelectedTag(item) {
+                if (this.selectedTag === 'All') return true;
+
+                const tags = (item.tags || '')
+                    .split(',')
+                    .map(tag => tag.trim())
+                    .filter(Boolean);
+
+                return tags.includes(this.selectedTag);
+            },
+
+            applySearchAndFilter(items, type) {
+                let results = [...items];
+
+                if (this.search.trim()) {
+                    const keyword = this.search.toLowerCase();
+                    results = results.filter(item =>
+                        item.name.toLowerCase().includes(keyword)
+                    );
+                }
+
+                if (this.selectedTag !== 'All') {
+                    results = results.filter(item => this.matchesSelectedTag(item));
+                }
+
+                results.sort((a, b) => {
+                    if (this.sortOption === 'name-desc') {
+                        return b.name.localeCompare(a.name);
+                    }
+
+                    return a.name.localeCompare(b.name);
+                });
+
+                return results;
+            },
+
+            filteredMobileSuits() {
+                return this.applySearchAndFilter(this.allMobileSuits, 'mobile-suits');
+            },
+
+            filteredPilots() {
+                return this.applySearchAndFilter(this.allPilots, 'pilots');
+            },
+
+            paginatedMobileSuits() {
+                const start = (this.mobileSuitPage - 1) * this.itemsPerPage;
+                const end = start + this.itemsPerPage;
+                return this.filteredMobileSuits().slice(start, end);
+            },
+
+            totalMobileSuitPages() {
+                return Math.max(1, Math.ceil(this.filteredMobileSuits().length / this.itemsPerPage));
+            },
+
+            mobileSuitPageNumbers() {
+                return Array.from({ length: this.totalMobileSuitPages() }, (_, i) => i + 1);
+            },
+
+            setMobileSuitPage(page) {
+                this.mobileSuitPage = page;
+            },
+
+            goToPreviousMobileSuitPage() {
+                if (this.mobileSuitPage > 1) this.mobileSuitPage--;
+            },
+
+            goToNextMobileSuitPage() {
+                if (this.mobileSuitPage < this.totalMobileSuitPages()) this.mobileSuitPage++;
+            },
+
+            resetMobileSuitPageIfNeeded() {
+                if (this.mobileSuitPage > this.totalMobileSuitPages()) {
+                    this.mobileSuitPage = 1;
+                }
+            },
+
+            paginatedPilots() {
+                const start = (this.pilotPage - 1) * this.itemsPerPage;
+                const end = start + this.itemsPerPage;
+                return this.filteredPilots().slice(start, end);
+            },
+
+            totalPilotPages() {
+                return Math.max(1, Math.ceil(this.filteredPilots().length / this.itemsPerPage));
+            },
+
+            pilotPageNumbers() {
+                return Array.from({ length: this.totalPilotPages() }, (_, i) => i + 1);
+            },
+
+            setPilotPage(page) {
+                this.pilotPage = page;
+            },
+
+            goToPreviousPilotPage() {
+                if (this.pilotPage > 1) this.pilotPage--;
+            },
+
+            goToNextPilotPage() {
+                if (this.pilotPage < this.totalPilotPages()) this.pilotPage++;
+            },
+
+            resetPilotPageIfNeeded() {
+                if (this.pilotPage > this.totalPilotPages()) {
+                    this.pilotPage = 1;
+                }
+            },
+
+            resetAllPages() {
+                this.mobileSuitPage = 1;
+                this.pilotPage = 1;
+                this.resetMobileSuitPageIfNeeded();
+                this.resetPilotPageIfNeeded();
+            },
+
+            clearFilters() {
+                this.selectedTag = 'All';
+                this.sortOption = 'name-asc';
+                this.resetAllPages();
+            },
 
             findFullItem(type, id) {
                 if (type === 'mobile-suit') {
@@ -83,11 +227,25 @@
                 this.selectedItem = this.findFullItem('mobile-suit', mobileSuit.id);
             }
         }"
+        x-init="
+            $watch('search', () => resetAllPages());
+            $watch('selectedTag', () => resetAllPages());
+            $watch('sortOption', () => resetAllPages());
+            $watch('itemsPerPage', () => resetAllPages());
+            $watch('tab', () => {
+                selectedTag = 'All';
+                sortOption = 'name-asc';
+                filterOpen = false;
+                resetAllPages();
+            });
+        "
         @keydown.escape.window="
             if (imageModalOpen) {
                 closeImageModal()
             } else if (modalOpen) {
                 closeModal()
+            } else if (filterOpen) {
+                filterOpen = false
             }
         "
         class="space-y-6"
@@ -114,6 +272,113 @@
             </button>
         </div>
 
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div class="relative max-w-xl w-full">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="m20 20-3.5-3.5"></path>
+                    </svg>
+                </span>
+
+                <input
+                    x-model="search"
+                    type="text"
+                    :placeholder="tab === 'mobile-suits' ? 'Search mobile suits...' : 'Search pilots...'"
+                    class="w-full rounded-2xl border border-slate-700 bg-slate-800/90 py-3 pl-11 pr-12 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-600/40"
+                >
+
+                <button
+                    x-show="search.length > 0"
+                    x-cloak
+                    @click="search = ''"
+                    type="button"
+                    class="absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400 hover:text-white transition"
+                >
+                    ✕
+                </button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-3">
+                    <label for="itemsPerPage" class="text-sm text-slate-400 whitespace-nowrap">Show</label>
+                    <select
+                        id="itemsPerPage"
+                        x-model.number="itemsPerPage"
+                        class="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-slate-100 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-600/40"
+                    >
+                        <option value="6">6</option>
+                        <option value="9">9</option>
+                        <option value="12">12</option>
+                    </select>
+                    <span class="text-sm text-slate-400 whitespace-nowrap">per page</span>
+                </div>
+
+                <div class="relative" @click.outside="filterOpen = false">
+                    <button
+                        @click="filterOpen = !filterOpen"
+                        type="button"
+                        class="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-700 bg-slate-800/90 px-4 py-2.5 text-sm text-slate-200 transition hover:bg-slate-700 hover:text-white"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18"></path>
+                            <path d="M6 12h12"></path>
+                            <path d="M10 18h4"></path>
+                        </svg>
+                        <span>Filter</span>
+                    </button>
+
+                    <div
+                        x-show="filterOpen"
+                        x-cloak
+                        x-transition
+                        class="absolute right-0 mt-3 w-[320px] rounded-3xl border border-slate-700 bg-slate-900/98 p-4 shadow-[0_20px_60px_rgba(2,6,23,0.7)] backdrop-blur-md z-20"
+                    >
+                        <div class="flex items-center justify-between gap-3 mb-4">
+                            <div>
+                                <p class="text-xs uppercase tracking-[0.24em] text-slate-500">Filter & Sort</p>
+                                <p class="text-sm text-slate-300 mt-1" x-text="tab === 'mobile-suits' ? 'Mobile Suits controls' : 'Pilots controls'"></p>
+                            </div>
+
+                            <button
+                                @click="clearFilters()"
+                                type="button"
+                                class="text-xs text-slate-400 hover:text-white transition"
+                            >
+                                Reset
+                            </button>
+                        </div>
+
+                        <div class="space-y-5">
+                            <div class="space-y-2">
+                                <label class="text-xs uppercase tracking-[0.22em] text-slate-500">Tag</label>
+                                <select
+                                    x-model="selectedTag"
+                                    class="w-full rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-600/40"
+                                >
+                                    <option value="All">All Tags</option>
+                                    <template x-for="tag in availableTags()" :key="tag">
+                                        <option :value="tag" x-text="tag"></option>
+                                    </template>
+                                </select>
+                            </div>
+
+                            <div class="space-y-2">
+                                <label class="text-xs uppercase tracking-[0.22em] text-slate-500">Sort</label>
+                                <select
+                                    x-model="sortOption"
+                                    class="w-full rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-600/40"
+                                >
+                                    <option value="name-asc">Name: A to Z</option>
+                                    <option value="name-desc">Name: Z to A</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <section x-show="tab === 'mobile-suits'" x-cloak>
             @include('gundam.partials.mobile-suits-grid')
         </section>
@@ -122,7 +387,6 @@
             @include('gundam.partials.pilots-grid')
         </section>
 
-        <!-- Main Modal Overlay -->
         <div
             x-show="modalOpen"
             x-cloak
@@ -131,7 +395,6 @@
             @click="closeModal()"
         ></div>
 
-        <!-- Main Modal -->
         <div
             x-show="modalOpen"
             x-cloak
@@ -229,7 +492,7 @@
                             </template>
 
                             <template x-if="modalType === 'pilot'">
-                                <template x-for="mobileSuit in (selectedItem?.mobile_suits || [])" :key="mobileSuit.id">
+                                <template x-for="mobileSuit in (selectedItem?.mobile_suits || selectedItem?.mobileSuits || [])" :key="mobileSuit.id">
                                     <button
                                         type="button"
                                         @click="openRelatedMobileSuit(mobileSuit)"
@@ -261,16 +524,14 @@
             </div>
         </div>
 
-        <!-- Image Modal Overlay -->
         <div
             x-show="imageModalOpen"
             x-cloak
             x-transition.opacity
-            class="fixed inset-0 z-[60] bg-slate-950/90 backdrop-blur-sm"
+            class="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm"
             @click="closeImageModal()"
         ></div>
 
-        <!-- Image Modal -->
         <div
             x-show="imageModalOpen"
             x-cloak
@@ -282,23 +543,21 @@
             x-transition:leave-end="opacity-0 scale-95"
             class="fixed inset-0 z-[70] flex items-center justify-center p-4"
         >
-            <div @click.stop class="relative w-full max-w-6xl">
+            <div class="relative max-w-6xl w-full flex items-center justify-center" @click.stop>
                 <button
                     @click="closeImageModal()"
-                    class="absolute top-3 right-3 z-10 inline-flex items-center justify-center w-11 h-11 rounded-2xl border border-slate-700 bg-slate-900/90 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                    class="absolute top-4 right-4 z-10 inline-flex items-center justify-center w-11 h-11 rounded-2xl border border-white/15 bg-black/50 text-white hover:bg-black/70 transition"
                 >
                     ✕
                 </button>
 
-                <div class="rounded-3xl overflow-hidden border border-slate-700 bg-slate-900 shadow-[0_25px_80px_rgba(2,6,23,0.7)]">
-                    <template x-if="selectedImage">
-                        <img
-                            :src="selectedImage"
-                            :alt="selectedImageAlt"
-                            class="w-full max-h-[85vh] object-contain bg-slate-950"
-                        >
-                    </template>
-                </div>
+                <template x-if="selectedImage">
+                    <img
+                        :src="selectedImage"
+                        :alt="selectedImageAlt"
+                        class="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+                    >
+                </template>
             </div>
         </div>
     </div>
